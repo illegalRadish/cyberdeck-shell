@@ -116,6 +116,72 @@ Do **not** `brew services start ollama` — the helper runs its own short-lived
 server so nothing sits resident. Then Settings → AI ASSETS → DOWNLOAD MISSING
 pulls the LLM through the shell itself.
 
+## Deploying to a Raspberry Pi
+
+### What to flash
+
+**Raspberry Pi OS (64-bit), Bookworm or newer**, via Raspberry Pi Imager, on a
+Pi 4 or Pi 5. 64-bit matters: the prebuilt `libmpv` and the AI stack are arm64.
+
+**Lite is the right choice** — this shell replaces the desktop rather than
+running inside one, and on Lite SDL renders straight to KMS/DRM with no X or
+Wayland underneath. The Desktop image also works if you would rather have a
+fallback GUI.
+
+### Graphics: the Pi cannot do desktop GL 3.3
+
+The VideoCore GPU has no desktop OpenGL 3.3 — Mesa's V3D driver exposes OpenGL
+ES 3.1, and desktop GL only up to 2.1-3.1. Requesting a 3.3 core context there
+fails outright rather than degrading, so **Linux builds target GLES 3.0**:
+`CYBERDECK_GLES` defaults ON everywhere except macOS. Shaders are authored once
+in GLSL 3.30 core and retargeted to GLSL ES 3.00 at load time
+(`Shader.cpp: retargetVersion`), so there is only ever one copy of each.
+
+Nothing else in the renderer changes: vertex array objects, `GL_CLAMP_TO_EDGE`,
+unsized `GL_RGBA` internal formats and `GL_UNPACK_ALIGNMENT` are all core in
+GLES 3.0. GLES also removes the need for an extension loader, since
+`<GLES3/gl3.h>` declares the whole API while Linux's `<GL/gl.h>` stops at 1.1.
+
+### Build
+
+```bash
+sudo apt update
+sudo apt install -y build-essential cmake pkg-config git python3 \
+    libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev \
+    libsqlite3-dev libmpv-dev libgles2-mesa-dev
+
+git clone <your-repo-url> cyberdeck-shell && cd cyberdeck-shell
+cmake -S . -B build          # prints "cyberdeck: OpenGL ES 3.0"
+cmake --build build -j4
+```
+
+### Run
+
+On Lite there is no display server, so point SDL at KMS/DRM:
+
+```bash
+sudo usermod -aG video,render,input "$USER"   # log out and back in
+SDL_VIDEODRIVER=kmsdrm ./build/cyberdeck
+```
+
+Put `PI LIB` on the media drive; it is auto-discovered under `/media`, `/mnt`
+and `/run/media`, or set `CYBERDECK_MEDIA_ROOT` explicitly.
+
+### Torrent engine
+
+```bash
+bash assets/net/install-torrent-engine.sh --media-root "/media/$USER/PI LIB"
+```
+
+Installs and configures `transmission-daemon` as a user-level instance. It is
+deliberately **not** the packaged system service: that runs as
+`debian-transmission`, which cannot write to a USB drive mounted for the login
+user, and the failure surfaces only as a permission error in `journalctl`.
+
+The daemon is started `--foreground` under `nohup` rather than in its own daemon
+mode. On macOS its fork-without-exec kills it the moment a magnet is parsed;
+Linux is unaffected, but one launch path serves both.
+
 ### Pi bring-up
 
 ```bash

@@ -5,10 +5,25 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Raspberry Pi cannot provide a desktop GL 3.3 core context (see
+# src/render/GL.hpp), so Linux targets OpenGL ES 3.0. That also removes the need
+# for an extension loader, which the plain <GL/gl.h> path would otherwise
+# require to reach anything past GL 1.1. macOS keeps desktop GL 3.3 for
+# development. Override with -DCYBERDECK_GLES=ON/OFF.
+if(UNIX AND NOT APPLE)
+    set(CYBERDECK_GLES_DEFAULT ON)
+else()
+    set(CYBERDECK_GLES_DEFAULT OFF)
+endif()
+option(CYBERDECK_GLES "Target OpenGL ES 3.0 instead of desktop OpenGL 3.3"
+       ${CYBERDECK_GLES_DEFAULT})
+
 find_package(SDL2 REQUIRED)
 find_package(SDL2_ttf REQUIRED)
 find_package(SDL2_image REQUIRED)
-find_package(OpenGL REQUIRED)
+if(NOT CYBERDECK_GLES)
+    find_package(OpenGL REQUIRED)
+endif()
 find_package(SQLite3 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(MPV REQUIRED mpv)
@@ -73,10 +88,19 @@ target_include_directories(cyberdeck PRIVATE
 
 target_link_libraries(cyberdeck PRIVATE
     SDL2::SDL2
-    OpenGL::GL
     SQLite3::SQLite3
     ${MPV_LIBRARIES}
 )
+
+if(CYBERDECK_GLES)
+    find_library(CYBERDECK_GLESV2 NAMES GLESv2 REQUIRED)
+    target_compile_definitions(cyberdeck PRIVATE CYBERDECK_USE_GLES=1)
+    target_link_libraries(cyberdeck PRIVATE ${CYBERDECK_GLESV2})
+    message(STATUS "cyberdeck: OpenGL ES 3.0 (Raspberry Pi / Linux)")
+else()
+    target_link_libraries(cyberdeck PRIVATE OpenGL::GL)
+    message(STATUS "cyberdeck: desktop OpenGL 3.3 core")
+endif()
 
 target_compile_options(cyberdeck PRIVATE ${MPV_CFLAGS_OTHER})
 target_link_directories(cyberdeck PRIVATE ${MPV_LIBRARY_DIRS})

@@ -30,6 +30,34 @@ bool Shader::readFile(const std::string& path, std::string& out) {
     return true;
 }
 
+namespace {
+
+// Shaders are authored once in GLSL 3.30 core. Their bodies are already valid
+// GLSL ES 3.00 — the only incompatibilities are the version line itself and the
+// precision qualifier ES requires before any float in a fragment shader. Both
+// are supplied here so there is exactly one copy of each shader on disk rather
+// than a desktop set and an ES set drifting apart.
+std::string retargetVersion(const std::string& source, bool fragment) {
+#if defined(CYBERDECK_USE_GLES)
+    const std::string header = "#version 300 es\n";
+    const std::string precision = fragment ? "precision mediump float;\n" : "";
+#else
+    const std::string header = "#version 330 core\n";
+    const std::string precision;
+#endif
+    // A #version directive is only legal as the first token, so the authored
+    // one has to be removed rather than shadowed.
+    std::string body = source;
+    const std::size_t first = body.find_first_not_of(" \t\r\n");
+    if (first != std::string::npos && body.compare(first, 8, "#version") == 0) {
+        const std::size_t nl = body.find('\n', first);
+        body = nl == std::string::npos ? std::string{} : body.substr(nl + 1);
+    }
+    return header + precision + body;
+}
+
+}  // namespace
+
 unsigned int Shader::compile(unsigned int type, const std::string& source) {
     const unsigned int shader = glCreateShader(type);
     const char* src = source.c_str();
@@ -62,8 +90,8 @@ bool Shader::loadFromFiles(const std::string& vertPath, const std::string& fragP
         return false;
     }
 
-    const unsigned int vs = compile(GL_VERTEX_SHADER, vertSrc);
-    const unsigned int fs = compile(GL_FRAGMENT_SHADER, fragSrc);
+    const unsigned int vs = compile(GL_VERTEX_SHADER, retargetVersion(vertSrc, false));
+    const unsigned int fs = compile(GL_FRAGMENT_SHADER, retargetVersion(fragSrc, true));
     if (vs == 0 || fs == 0) {
         if (vs) glDeleteShader(vs);
         if (fs) glDeleteShader(fs);
