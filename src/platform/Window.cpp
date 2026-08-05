@@ -59,6 +59,31 @@ bool Window::create(const std::string& title, int width, int height) {
     width_ = width;
     height_ = height;
     refreshDrawableSize();
+
+    // Which output did we actually land on? A Pi cyberdeck can have an HDMI
+    // monitor and an SPI panel attached at once, giving several DRM cards, and
+    // KMSDRM picks one by scanning. When it picks the one you are not looking
+    // at, everything works perfectly and the screen stays black — with no error
+    // anywhere to explain it. Printing the choice turns that into a one-line
+    // answer instead of a hardware guessing game.
+    std::cout << "Video driver: " << (SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver()
+                                                                  : "(none)")
+              << "  displays: " << SDL_GetNumVideoDisplays() << '\n';
+    const int shown = SDL_GetWindowDisplayIndex(window_);
+    for (int i = 0; i < SDL_GetNumVideoDisplays(); ++i) {
+        SDL_DisplayMode mode{};
+        const char* name = SDL_GetDisplayName(i);
+        if (SDL_GetCurrentDisplayMode(i, &mode) == 0) {
+            std::cout << "  display " << i << (i == shown ? " *" : "  ") << " "
+                      << (name ? name : "?") << "  " << mode.w << "x" << mode.h << "@"
+                      << mode.refresh_rate << "Hz\n";
+        } else {
+            std::cout << "  display " << i << (i == shown ? " *" : "  ") << " "
+                      << (name ? name : "?") << "  (mode unavailable)\n";
+        }
+    }
+    std::cout << "Window " << width_ << "x" << height_ << ", drawable " << drawableWidth_ << "x"
+              << drawableHeight_ << "  (* = where the window went)\n";
     return true;
 }
 
