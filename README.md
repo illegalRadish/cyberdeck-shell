@@ -167,6 +167,35 @@ SDL_VIDEODRIVER=kmsdrm ./build/cyberdeck
 Put `PI LIB` on the media drive; it is auto-discovered under `/media`, `/mnt`
 and `/run/media`, or set `CYBERDECK_MEDIA_ROOT` explicitly.
 
+### Start at boot
+
+```bash
+sudo ./deploy/install-service.sh --media-root "/media/$USER/PI LIB"
+sudo systemctl start cyberdeck        # or just reboot
+journalctl -u cyberdeck -f            # follow it
+```
+
+Two things in `deploy/cyberdeck.service` are load-bearing, and both cause the
+same symptom if missed — the service starts, fails silently, and restarts:
+
+- **`TTYPath=/dev/tty1` + `StandardInput=tty`.** KMS/DRM only grants DRM master
+  to a process attached to an active VT. Without them SDL cannot become DRM
+  master and exits immediately.
+- **`getty@tty1` must be disabled**, or it holds that VT. The installer does it.
+
+`SupplementaryGroups=video render input` covers `/dev/dri/*` and evdev; the
+installer also adds the login user to those groups for running by hand.
+
+To undo:
+
+```bash
+sudo systemctl disable --now cyberdeck
+sudo systemctl enable --now getty@tty1
+```
+
+The torrent daemon needs no unit of its own — `TorrentManager` starts it when
+the Downloads screen first polls and finds RPC unreachable.
+
 ### Torrent engine
 
 ```bash

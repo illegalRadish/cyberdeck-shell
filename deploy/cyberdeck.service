@@ -1,0 +1,39 @@
+[Unit]
+# Fullscreen shell on Raspberry Pi OS Lite. Install with deploy/install-service.sh.
+Description=Cyberdeck media shell
+# The media drive is usually a USB stick auto-mounted under /media; starting
+# before it appears means MediaRoot finds no PI LIB and the library comes up
+# empty. RequiresMountsFor is set by the installer once the real path is known.
+After=multi-user.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__APPDIR__
+ExecStart=__APPDIR__/build/cyberdeck
+Restart=on-failure
+RestartSec=3
+
+# No X or Wayland on Lite, so SDL renders straight to KMS/DRM.
+Environment=SDL_VIDEODRIVER=kmsdrm
+# Quoted because the directory name contains a space.
+Environment="CYBERDECK_MEDIA_ROOT=__MEDIAROOT__"
+
+# KMSDRM needs DRM master, which is only granted to a process attached to an
+# active VT. Without these three the app starts, fails to become DRM master,
+# and exits — the single most common way this unit "does nothing".
+# getty@tty1 must be disabled or it holds the VT (the installer does that).
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+
+# /dev/dri/* is video+render; the keyboard comes from evdev, which needs input.
+SupplementaryGroups=video render input
+
+[Install]
+WantedBy=multi-user.target
