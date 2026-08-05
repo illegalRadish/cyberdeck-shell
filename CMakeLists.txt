@@ -86,11 +86,38 @@ target_include_directories(cyberdeck PRIVATE
     ${MPV_INCLUDE_DIRS}
 )
 
-target_link_libraries(cyberdeck PRIVATE
-    SDL2::SDL2
-    SQLite3::SQLite3
-    ${MPV_LIBRARIES}
-)
+target_link_libraries(cyberdeck PRIVATE ${MPV_LIBRARIES})
+
+# Imported targets are not guaranteed. Homebrew's CMake config packages export
+# SDL2::SDL2 and SQLite3::SQLite3, but Debian's do not always, and a missing
+# target is passed through to the linker verbatim — the failure is
+# "cannot find -lSQLite3::SQLite3" at link time rather than anything at
+# configure time. Resolve each to a real library the same way the SDL2_ttf and
+# SDL2_image blocks below already do.
+# pkg-config is the fallback rather than find_library because it supplies the
+# include directories too, and both libsqlite3-dev and libsdl2-dev ship .pc
+# files on Debian.
+if(TARGET SQLite3::SQLite3)
+    target_link_libraries(cyberdeck PRIVATE SQLite3::SQLite3)
+    set(CYBERDECK_SQLITE_FROM "imported target")
+else()
+    pkg_check_modules(SQLITE3PC REQUIRED sqlite3)
+    target_include_directories(cyberdeck PRIVATE ${SQLITE3PC_INCLUDE_DIRS})
+    target_link_directories(cyberdeck PRIVATE ${SQLITE3PC_LIBRARY_DIRS})
+    target_link_libraries(cyberdeck PRIVATE ${SQLITE3PC_LIBRARIES})
+    set(CYBERDECK_SQLITE_FROM "pkg-config")
+endif()
+
+if(TARGET SDL2::SDL2)
+    target_link_libraries(cyberdeck PRIVATE SDL2::SDL2)
+    set(CYBERDECK_SDL_FROM "imported target")
+else()
+    pkg_check_modules(SDL2PC REQUIRED sdl2)
+    target_include_directories(cyberdeck PRIVATE ${SDL2PC_INCLUDE_DIRS})
+    target_link_directories(cyberdeck PRIVATE ${SDL2PC_LIBRARY_DIRS})
+    target_link_libraries(cyberdeck PRIVATE ${SDL2PC_LIBRARIES})
+    set(CYBERDECK_SDL_FROM "pkg-config")
+endif()
 
 if(CYBERDECK_GLES)
     find_library(CYBERDECK_GLESV2 NAMES GLESv2 REQUIRED)
@@ -130,6 +157,11 @@ endif()
 target_compile_definitions(cyberdeck PRIVATE
     CYBERDECK_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets"
 )
+
+# Printed so a link failure on a new machine is diagnosable from the configure
+# output rather than by guessing which package produced which target.
+message(STATUS "cyberdeck: SQLite3 via ${CYBERDECK_SQLITE_FROM}")
+message(STATUS "cyberdeck: SDL2 via ${CYBERDECK_SDL_FROM}")
 
 add_custom_command(TARGET cyberdeck POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
