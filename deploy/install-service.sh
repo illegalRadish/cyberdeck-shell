@@ -30,13 +30,29 @@ done
 [ -x "$APPDIR/build/cyberdeck" ] \
   || die "no binary at $APPDIR/build/cyberdeck — run: cmake -S . -B build && cmake --build build -j4"
 
+SEARCHED=""
 if [ -z "$MEDIA_ROOT" ]; then
-  for candidate in "/media/$RUN_USER/PI LIB" "/mnt/PI LIB" "/home/$RUN_USER/PI LIB" "$APPDIR/../PI LIB"; do
+  for candidate in "/media/$RUN_USER/PI LIB" "/mnt/PI LIB" "/home/$RUN_USER/PI LIB" \
+                   "/run/media/$RUN_USER/PI LIB" "$APPDIR/../PI LIB"; do
+    SEARCHED="$SEARCHED\n    $candidate"
     if [ -d "$candidate" ]; then MEDIA_ROOT="$candidate"; break; fi
   done
+elif [ ! -d "$MEDIA_ROOT" ]; then
+  # An explicit path that does not exist is a typo or an unplugged drive, and
+  # silently ignoring it would install a service pointing somewhere wrong.
+  echo "warning: --media-root \"$MEDIA_ROOT\" is not a directory; ignoring it" >&2
+  MEDIA_ROOT=""
 fi
-[ -n "$MEDIA_ROOT" ] || die "PI LIB not found — pass --media-root \"/media/$RUN_USER/PI LIB\""
-[ -d "$MEDIA_ROOT" ] || die "not a directory: $MEDIA_ROOT"
+
+# A missing library is NOT fatal. The shell starts fine without one (the media
+# screens just report it), MediaRoot re-runs discovery on every launch, and
+# refusing to install the service here would leave the deck with no way to boot
+# into anything at all until a USB drive turns up.
+if [ -z "$MEDIA_ROOT" ]; then
+  echo "PI LIB not found. Looked in:$(printf "$SEARCHED")" >&2
+  echo "installing without a media root — the shell will search for PI LIB at each start." >&2
+  echo "to pin one later:  sudo $0 --media-root \"/media/$RUN_USER/PI LIB\"" >&2
+fi
 
 # DRM master is only granted on an active VT, and getty owns tty1 by default.
 # Leaving it enabled is why the service otherwise starts and immediately exits.
@@ -51,10 +67,15 @@ sed -e "s|__USER__|$RUN_USER|g" \
     -e "s|__MEDIAROOT__|$MEDIA_ROOT|g" \
     "$APPDIR/deploy/cyberdeck.service" > "$UNIT"
 
+if [ -z "$MEDIA_ROOT" ]; then
+  # Leaving it set to an empty string would override discovery with nothing,
+  # which is worse than not setting it at all.
+  sed -i '/CYBERDECK_MEDIA_ROOT=/d' "$UNIT"
+fi
+
 # Wait for the media drive rather than racing it. Escaping the path is what
 # systemd-escape is for; a hand-written unit with a space in it silently fails.
-MOUNT_UNIT="$(systemd-escape -p --suffix=mount "$MEDIA_ROOT" 2>/dev/null || true)"
-if [ -n "$MOUNT_UNIT" ] && mountpoint -q "$MEDIA_ROOT" 2>/dev/null; then
+if [ -n "$MEDIA_ROOT" ] && mountpoint -q "$MEDIA_ROOT" 2>/dev/null; then
   sed -i "/^Wants=network-online.target/a RequiresMountsFor=$MEDIA_ROOT" "$UNIT"
   echo "unit will wait for $MEDIA_ROOT to be mounted"
 fi
@@ -66,7 +87,7 @@ echo
 echo "installed: $UNIT"
 echo "  user:       $RUN_USER"
 echo "  app:        $APPDIR"
-echo "  media root: $MEDIA_ROOT"
+echo "  media root: ${MEDIA_ROOT:-(auto-discovered at each start)}"
 echo
 echo "start now:  sudo systemctl start cyberdeck"
 echo "logs:       journalctl -u cyberdeck -f"
