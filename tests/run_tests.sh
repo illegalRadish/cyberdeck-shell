@@ -70,6 +70,15 @@ if [ "$WHICH" = all ] || [ "$WHICH" = assets ]; then
     src/core/JsonLine.cpp src/core/Assets.cpp
 fi
 
+# Not a build_and_run suite: it shells out to glslangValidator rather than
+# compiling C++, and it is the only check that exercises the GLES shader path
+# the Pi uses. macOS builds never touch it otherwise.
+if [ "$WHICH" = all ] || [ "$WHICH" = shaders ]; then
+  echo
+  echo "############ shaders ############"
+  ./tests/validate_shaders.sh || fails=$((fails+1))
+fi
+
 if [ "$WHICH" = all ] || [ "$WHICH" = torrent_filer ]; then
   build_and_run torrent_filer plain src/net/TorrentFiler.cpp src/media/MediaTypes.cpp
 fi

@@ -37,10 +37,26 @@ namespace {
 // precision qualifier ES requires before any float in a fragment shader. Both
 // are supplied here so there is exactly one copy of each shader on disk rather
 // than a desktop set and an ES set drifting apart.
-std::string retargetVersion(const std::string& source, bool fragment) {
+std::string retargetVersion(const std::string& source) {
 #if defined(CYBERDECK_USE_GLES)
     const std::string header = "#version 300 es\n";
-    const std::string precision = fragment ? "precision mediump float;\n" : "";
+    // Both stages, and both highp.
+    //
+    // GLSL ES defaults float to highp in vertex shaders but gives fragment
+    // shaders no default at all, and a uniform declared in both stages must
+    // agree on precision or the program fails to link:
+    //
+    //     declarations for uniform `uRect` have mismatching precision qualifiers
+    //
+    // Injecting into the fragment stage alone caused exactly that, since every
+    // shared uniform then ended up highp in the vertex shader and mediump in
+    // the fragment shader.
+    //
+    // highp rather than mediump because these shaders work in pixel and NDC
+    // coordinates, where mediump's ~10-bit mantissa visibly quantises geometry
+    // at 720p and above. ES 3.0 requires fragment shaders to support highp, so
+    // this is portable.
+    const std::string precision = "precision highp float;\nprecision highp int;\n";
 #else
     const std::string header = "#version 330 core\n";
     const std::string precision;
@@ -90,8 +106,8 @@ bool Shader::loadFromFiles(const std::string& vertPath, const std::string& fragP
         return false;
     }
 
-    const unsigned int vs = compile(GL_VERTEX_SHADER, retargetVersion(vertSrc, false));
-    const unsigned int fs = compile(GL_FRAGMENT_SHADER, retargetVersion(fragSrc, true));
+    const unsigned int vs = compile(GL_VERTEX_SHADER, retargetVersion(vertSrc));
+    const unsigned int fs = compile(GL_FRAGMENT_SHADER, retargetVersion(fragSrc));
     if (vs == 0 || fs == 0) {
         if (vs) glDeleteShader(vs);
         if (fs) glDeleteShader(fs);
